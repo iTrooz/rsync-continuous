@@ -27,6 +27,15 @@ TARGET="$2"
 test -d "$SOURCE" || { echo "Usage: $0 source target - source must be a directory" 1>&2; exit 1; }
 test -z "$TARGET" && { echo "Usage: $0 source target - target must be non-empty string" 1>&2; exit 1; }
 
+# Prompt for password if TARGET is a remote location
+if [[ "$TARGET" == *:* ]]; then
+	read -sp "Enter password for remote target (press Enter if none): " PASSWORD
+	export PASSWORD
+	echo
+fi
+
+rsync="sshpass -p $PASSWORD rsync"
+
 # list of files to be synced, each file may be listed multiple times, always appended
 WAITLIST="$(mktemp --tmpdir wait.XXXXXX.list)"
 # stamp file to declare that WAITLIST has new files, we're fully syncronized if this file is missing
@@ -83,7 +92,7 @@ sync_initial_now()
 {
 	status "Syncronizing $SOURCE to $TARGET ..."
 	# Note the extra slash at the end of source to avoid making subdirectory inside target
-	rsync -say --info=all0,misc2,name1,remove1,stats2 "$SOURCE/" "$TARGET"
+	$rsync -say --info=all0,misc2,name1,remove1,stats2 "$SOURCE/" "$TARGET"
 	# FIXME: handle the case where rsync fails above? Maybe use retry-loop with option to quit here, too?
 	status "Initial syncronization complete."
 }
@@ -93,7 +102,7 @@ maybe_delete_remote_extra_files()
 	status "Syncronizing $SOURCE to $TARGET ..."
 	status "Computing files to be AUTOMATICALLY DELETED from the remote ..."
 	# Note the extra slash at the end of source to avoid making subdirectory inside target
-	LC_ALL=C rsync --dry-run -sa --max-size=0 --delete --info=all0,del2 "$SOURCE/" "$TARGET" | tee "$TEMPFILE"
+	LC_ALL=C $rsync --dry-run -sa --max-size=0 --delete --info=all0,del2 "$SOURCE/" "$TARGET" | tee "$TEMPFILE"
 	if test -s "$TEMPFILE"; then
 		answer=""
 		while test -z "$answer"; do
@@ -101,7 +110,7 @@ maybe_delete_remote_extra_files()
 			case "$answer" in
 				y|Y|yes|Yes|YES)
 					status "Removing extra remote files ..."
-					rsync -sa --max-size=0 --delete --info=all0,del2 "$SOURCE/" "$TARGET"
+					$rsync -sa --max-size=0 --delete --info=all0,del2 "$SOURCE/" "$TARGET"
 					;;
 				n|N|no|No|NO)
 					status "Skipping removal of extra remote files"
@@ -134,7 +143,7 @@ sync_workaround_issue_121()
 	# The point of killing the old process is to reduce resource usage, so
 	# killing the old process is best effort only.
 	
-	rsync -say --info=all0,stats1 "$SOURCE/" "$TARGET" &
+	$rsync -say --info=all0,stats1 "$SOURCE/" "$TARGET" &
 	WORKAROUNDPID="$!"
 	echo "$WORKAROUNDPID" > "$PIDWORKAROUND"
 	status "$BASHPID: Running background workaround as PID $WORKAROUNDPID ..."
@@ -159,7 +168,7 @@ sync_now()
 		#cat "$SYNCLIST"
 		while test -s "$SYNCLIST"
 		do
-			rsync -sayr --info=all0,misc2,name1,remove1,stats1 --delete --delete-missing-args --no-implied-dirs --files-from="$SYNCLIST" "$SOURCE/" "$TARGET"
+			$rsync -sayr --info=all0,misc2,name1,remove1,stats1 --delete --delete-missing-args --no-implied-dirs --files-from="$SYNCLIST" "$SOURCE/" "$TARGET"
 			RSYNC_STATUS="$?"
 
 			case "$RSYNC_STATUS" in
